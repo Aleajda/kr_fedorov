@@ -3,12 +3,14 @@ import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from bs4 import BeautifulSoup
 import time
+import os
+import psutil
 from config import URLS
 
 app = Flask(__name__)
 executor = ThreadPoolExecutor(max_workers=10)
 
-HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 
 def fetch(url):
@@ -20,9 +22,6 @@ def fetch(url):
 
 
 def parse(html):
-    if not html:
-        return [], 0.0
-
     soup = BeautifulSoup(html, "html.parser")
     cards = soup.select("div.set-card")
 
@@ -51,7 +50,11 @@ def worker(url):
 
 @app.get("/parse")
 def handle_parse():
-    start = time.time()
+    process = psutil.Process(os.getpid())
+    cpu_start = process.cpu_times()
+    mem_start = process.memory_info().rss
+
+    start_time = time.time()
 
     futures = [executor.submit(worker, url) for url in URLS]
 
@@ -67,10 +70,18 @@ def handle_parse():
         for n in all_names:
             f.write(n + "\n")
 
+    cpu_end = process.cpu_times()
+    mem_end = process.memory_info().rss
+
+    cpu_used = (cpu_end.user + cpu_end.system) - (cpu_start.user + cpu_start.system)
+    mem_used_mb = (mem_end - mem_start) / 1024 / 1024
+
     return jsonify({
         "parsed": len(all_names),
         "sum": grand_total,
-        "time": time.time() - start
+        "time": time.time() - start_time,
+        "cpu_seconds": round(cpu_used, 4),
+        "memory_mb": round(mem_used_mb, 2)
     })
 
 
